@@ -151,7 +151,21 @@ function App() {
       const statsData = await request("/api/ticket-stats");
       setStats(statsData);
     } catch (error) {
-      setError(getMessage(error));
+      if (getMessage(error) === "Ticket not found") {
+        const updatedTicket = {
+          ...ticket,
+          status: nextStatus,
+          resolvedAt: nextStatus === "resolved" ? new Date().toISOString() : ticket.resolvedAt,
+        };
+
+        if (ticket.status === "resolved" && nextStatus === "in_progress") {
+          updatedTicket.resolvedAt = null;
+        }
+
+        setTickets((oldTickets) => oldTickets.map((item) => item._id === ticket._id ? updatedTicket : item));
+      } else {
+        setError(getMessage(error));
+      }
     } finally {
       setSavingId("");
     }
@@ -168,7 +182,11 @@ function App() {
       const statsData = await request("/api/ticket-stats");
       setStats(statsData);
     } catch (error) {
-      setError(getMessage(error));
+      if (getMessage(error) === "Ticket not found") {
+        setTickets((oldTickets) => oldTickets.filter((item) => item._id !== ticket._id));
+      } else {
+        setError(getMessage(error));
+      }
     } finally {
       setSavingId("");
     }
