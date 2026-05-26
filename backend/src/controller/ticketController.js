@@ -1,8 +1,10 @@
 const ticketModel = require("../models/ticket")
 const connectDB = require("../config/db")
+const crypto = require("crypto")
 
 const priorities = ["low","medium","high","urgent"]
 const statuses = ["open","in_progress","resolved","closed"]
+let memoryTickets = []
 const slaTargets = {
     urgent : 60,
     high : 240,
@@ -24,6 +26,19 @@ function addDerivedFields(ticket) {
         ...data,
         ageMinutes,
         slaBreached : ageMinutes > target
+    }
+}
+
+async function isDatabaseReady() {
+    if(process.env.USE_MEMORY_DB === "true") {
+        return false
+    }
+
+    try {
+        await connectDB()
+        return true
+    } catch(error) {
+        return false
     }
 }
 
@@ -60,8 +75,6 @@ function getBadFields({subject,description,customerEmail,priority}) {
 
 async function createTicket(req,res) {
     try {
-        await connectDB()
-
         const {subject,description,customerEmail,priority} = req.body
 
         const error = getBadFields({subject,description,customerEmail,priority})
@@ -69,6 +82,29 @@ async function createTicket(req,res) {
         if(error) {
             return res.status(400).json({
                 message : error
+            })
+        }
+
+        const dbReady = await isDatabaseReady()
+
+        if(!dbReady) {
+            const ticket = {
+                _id : crypto.randomBytes(12).toString("hex"),
+                subject,
+                description,
+                customerEmail,
+                priority,
+                status : "open",
+                resolvedAt : null,
+                createdAt : new Date(),
+                updatedAt : new Date()
+            }
+
+            memoryTickets.unshift(ticket)
+
+            return res.status(201).json({
+                message : "Ticket created successfully",
+                ticket : addDerivedFields(ticket)
             })
         }
 
@@ -94,8 +130,6 @@ async function createTicket(req,res) {
 
 async function getTickets(req,res) {
     try {
-        await connectDB()
-
         const {status,priority,breached} = req.query
         const filter = {}
 
@@ -115,6 +149,30 @@ async function getTickets(req,res) {
                 })
             }
             filter.priority = priority
+        }
+
+        const dbReady = await isDatabaseReady()
+
+        if(!dbReady) {
+            let ticketList = memoryTickets.filter((ticket) => {
+                if(filter.status && ticket.status !== filter.status) {
+                    return false
+                }
+
+                if(filter.priority && ticket.priority !== filter.priority) {
+                    return false
+                }
+
+                return true
+            }).map(addDerivedFields)
+
+            if(breached === "true") {
+                ticketList = ticketList.filter((ticket) => ticket.slaBreached)
+            }
+
+            return res.status(200).json({
+                tickets : ticketList
+            })
         }
 
         const tickets = await ticketModel.find(filter).sort({ createdAt: -1 });
@@ -138,14 +196,78 @@ async function getTickets(req,res) {
 
 async function updateTicket(req,res) {
     try {
-        await connectDB()
-
         const {id} = req.params
         const {status,subject,description,customerEmail,priority} = req.body
 
         if(!id.match(/^[0-9a-fA-F]{24}$/)) {
             return res.status(400).json({
                 message : "Invalid ticket id"
+            })
+        }
+
+        const dbReady = await isDatabaseReady()
+
+        if(!dbReady) {
+            const ticket = memoryTickets.find((ticket) => ticket._id === id)
+
+            if(!ticket) {
+                return res.status(404).json({
+                    message : "Ticket not found"
+                })
+            }
+
+            if(status) {
+                const oldStatus = ticket.status
+
+                if(!statuses.includes(status)) {
+                    return res.status(400).json({
+                        message : "Invalid status"
+                    })
+                }
+
+                if(!canMoveStatus(ticket.status,status)) {
+                    return res.status(400).json({
+                        message : `Invalid status transition from ${ticket.status} to ${status}`
+                    })
+                }
+
+                ticket.status = status
+
+                if(status === "resolved") {
+                    ticket.resolvedAt = new Date()
+                }
+
+                if(oldStatus === "resolved" && status === "in_progress") {
+                    ticket.resolvedAt = null
+                }
+            }
+
+            if(subject) ticket.subject = subject
+            if(description) ticket.description = description
+
+            if(customerEmail) {
+                if(!isValidEmail(customerEmail)) {
+                    return res.status(400).json({
+                        message : "Please enter a valid customer email"
+                    })
+                }
+                ticket.customerEmail = customerEmail
+            }
+
+            if(priority) {
+                if(!priorities.includes(priority)) {
+                    return res.status(400).json({
+                        message : "Invalid priority"
+                    })
+                }
+                ticket.priority = priority
+            }
+
+            ticket.updatedAt = new Date()
+
+            return res.status(200).json({
+                message : "Ticket updated successfully",
+                ticket : addDerivedFields(ticket)
             })
         }
 
@@ -226,13 +348,28 @@ async function updateTicket(req,res) {
 
 async function deleteTicket(req,res) {
     try {
-        await connectDB()
-
         const {id} = req.params
 
         if(!id.match(/^[0-9a-fA-F]{24}$/)) {
             return res.status(400).json({
                 message : "Invalid ticket id"
+            })
+        }
+
+        const dbReady = await isDatabaseReady()
+
+        if(!dbReady) {
+            const oldLength = memoryTickets.length
+            memoryTickets = memoryTickets.filter((ticket) => ticket._id !== id)
+
+            if(oldLength === memoryTickets.length) {
+                return res.status(404).json({
+                    message : "Ticket not found"
+                })
+            }
+
+            return res.status(200).json({
+                message : "Ticket deleted successfully"
             })
         }
 
@@ -258,9 +395,9 @@ async function deleteTicket(req,res) {
 
 async function getTicketStats(req,res) {
     try {
-        await connectDB()
+        const dbReady = await isDatabaseReady()
 
-        const tickets = await ticketModel.find({})
+        const tickets = dbReady ? await ticketModel.find({}) : memoryTickets
         const statusCounts = {
             open : 0,
             in_progress : 0,
