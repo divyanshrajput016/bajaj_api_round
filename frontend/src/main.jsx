@@ -75,7 +75,7 @@ function App() {
       const query = params.toString() ? `?${params.toString()}` : "";
       const [ticketData, statsData] = await Promise.all([
         request(`/api/tickets${query}`),
-        request("/api/tickets/stats"),
+        request("/api/ticket-stats"),
       ]);
 
       setTickets(ticketData.tickets || []);
@@ -143,12 +143,12 @@ function App() {
     try {
       setSavingId(ticket._id);
       setError("");
-      const data = await request(`/api/tickets/${ticket._id}`, {
+      const data = await request(`/api/tickets?id=${ticket._id}`, {
         method: "PATCH",
         body: JSON.stringify({ status: nextStatus }),
       });
       setTickets((oldTickets) => oldTickets.map((item) => item._id === ticket._id ? data.ticket : item));
-      const statsData = await request("/api/tickets/stats");
+      const statsData = await request("/api/ticket-stats");
       setStats(statsData);
     } catch (error) {
       setError(getMessage(error));
@@ -161,11 +161,11 @@ function App() {
     try {
       setSavingId(ticket._id);
       setError("");
-      await request(`/api/tickets/${ticket._id}`, {
+      await request(`/api/tickets?id=${ticket._id}`, {
         method: "DELETE",
       });
       setTickets((oldTickets) => oldTickets.filter((item) => item._id !== ticket._id));
-      const statsData = await request("/api/tickets/stats");
+      const statsData = await request("/api/ticket-stats");
       setStats(statsData);
     } catch (error) {
       setError(getMessage(error));

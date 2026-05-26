@@ -2,7 +2,7 @@ const ticketController = require("../backend/src/controller/ticketController")
 
 function setCors(req,res) {
     res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*")
-    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
+    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS")
     res.setHeader("Access-Control-Allow-Headers", "Content-Type")
     res.setHeader("Access-Control-Allow-Credentials", "true")
 }
@@ -15,25 +15,7 @@ module.exports = async function handler(req,res) {
     }
 
     if(req.method === "GET") {
-        return ticketController.getTickets(req,res)
-    }
-
-    if(req.method === "POST") {
-        return ticketController.createTicket(req,res)
-    }
-
-    if(req.method === "PATCH") {
-        req.params = {
-            id : req.query.id
-        }
-        return ticketController.updateTicket(req,res)
-    }
-
-    if(req.method === "DELETE") {
-        req.params = {
-            id : req.query.id
-        }
-        return ticketController.deleteTicket(req,res)
+        return ticketController.getTicketStats(req,res)
     }
 
     return res.status(405).json({
